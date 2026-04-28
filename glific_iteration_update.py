@@ -274,8 +274,7 @@ def _format_range(start_iso, end_iso):
 def _progress_bar(pct, length=10):
     filled = round(pct / 100 * length)
     empty  = length - filled
-    block  = "🟩" if pct >= 70 else "🟨" if pct >= 30 else "🟥"
-    return f"{block * filled}{'⬜' * empty} **{pct}%**"
+    return f"{'🟩' * filled}{'⬜' * empty} **{pct}%**"
 
 
 def _bar_color(pct):
