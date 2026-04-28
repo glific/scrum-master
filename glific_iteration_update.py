@@ -296,8 +296,9 @@ def _summarise_done(done_items):
         max_tokens=300,
         system=(
             "You are a concise technical writer summarising sprint work for a Discord update. "
-            "Given a list of completed ticket titles, write 2-3 sentences summarising what was "
-            "accomplished. Focus on themes and impact, not individual tickets. Be brief and direct."
+            "Given a list of completed ticket titles, write 3-5 bullet points summarising what was "
+            "accomplished. Group related work into themes. Each bullet should be one short sentence. "
+            "Use '• ' to start each bullet. No preamble, no closing sentence — bullets only."
         ),
         messages=[{"role": "user", "content": f"Summarise these completed tickets:\n{titles}"}],
     )
@@ -359,11 +360,6 @@ def build_messages(data):
             {
                 "name":   f"✅  Completed deliverables ({closed})",
                 "value":  done_lines[:1020],
-                "inline": False,
-            },
-            {
-                "name":   f"🚧  In progress / In review ({len(ongoing_items)})",
-                "value":  ongoing_lines[:1020],
                 "inline": False,
             },
         ],
