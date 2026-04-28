@@ -17,6 +17,7 @@ import sys
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
+import anthropic
 import requests
 from dotenv import load_dotenv
 
@@ -284,6 +285,25 @@ def _bar_color(pct):
     return 0xE74C3C
 
 
+def _summarise_done(done_items):
+    """Call Claude to summarise completed tickets into 2-3 sentences."""
+    if not done_items:
+        return "_None yet_"
+    titles = "\n".join(f"- {i['title']}" for i in done_items)
+    client = anthropic.Anthropic()
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=300,
+        system=(
+            "You are a concise technical writer summarising sprint work for a Discord update. "
+            "Given a list of completed ticket titles, write 2-3 sentences summarising what was "
+            "accomplished. Focus on themes and impact, not individual tickets. Be brief and direct."
+        ),
+        messages=[{"role": "user", "content": f"Summarise these completed tickets:\n{titles}"}],
+    )
+    return next((b.text for b in response.content if b.type == "text"), "_Unable to summarise_")
+
+
 def build_messages(data):
     items  = data["items"]
     total  = len(items)
@@ -314,7 +334,7 @@ def build_messages(data):
         title = i["title"][:60] + "…" if len(i["title"]) > 60 else i["title"]
         return f"{icon} {link} — {title}"
 
-    done_lines    = "\n".join(item_line(i) for i in done_items)    or "_None yet_"
+    done_lines    = _summarise_done(done_items)
     ongoing_lines = "\n".join(item_line(i) for i in ongoing_items) or "_None_"
 
     date_range    = _format_range(data["starts_at"], data["ends_at"])

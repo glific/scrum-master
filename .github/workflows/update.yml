@@ -32,10 +32,11 @@ jobs:
 
       - name: Run update
         env:
-          GITHUB_TOKEN:    ${{ secrets.PROJECTS_READ_TOKEN }}
-          ORG:             glific
-          PROJECT_NUMBER:  "8"
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          GITHUB_TOKEN:      ${{ secrets.PROJECTS_READ_TOKEN }}
+          ORG:               glific
+          PROJECT_NUMBER:    "8"
+          DISCORD_WEBHOOK:   ${{ secrets.DISCORD_WEBHOOK }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             python glific_iteration_update.py --dry-run
