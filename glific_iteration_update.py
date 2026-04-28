@@ -271,10 +271,11 @@ def _format_range(start_iso, end_iso):
     return f"{_ordinal(s.day)} {s.strftime('%B')} – {_ordinal(e.day)} {e.strftime('%B')}"
 
 
-def _progress_bar(pct, length=10):
-    filled = round(pct / 100 * length)
-    empty  = length - filled
-    return f"{'🟩' * filled}{'⬜' * empty} **{pct}%**"
+def _progress_bar(done_pct, inprogress_pct, length=10):
+    done_blocks   = round(done_pct / 100 * length)
+    inprog_blocks = min(round(inprogress_pct / 100 * length), length - done_blocks)
+    todo_blocks   = length - done_blocks - inprog_blocks
+    return f"{'🟩' * done_blocks}{'🟨' * inprog_blocks}{'⬜' * todo_blocks} **{done_pct}%**"
 
 
 def _bar_color(pct):
@@ -286,8 +287,10 @@ def _bar_color(pct):
 def build_messages(data):
     items  = data["items"]
     total  = len(items)
-    closed = sum(1 for i in items if i["status"] == "Done")
-    pct    = round(closed / total * 100) if total else 0
+    closed      = sum(1 for i in items if i["status"] == "Done")
+    in_progress = sum(1 for i in items if i["status"] in ("In Progress", "In Review"))
+    pct         = round(closed / total * 100) if total else 0
+    inprog_pct  = round(in_progress / total * 100) if total else 0
 
     # ── status breakdown ─────────────────────────────────────────────────────
     status_counts = defaultdict(int)
@@ -297,7 +300,8 @@ def build_messages(data):
     breakdown_parts = []
     for s in STATUS_ORDER:
         if status_counts[s]:
-            breakdown_parts.append(f"{status_counts[s]} {s} {STATUS_ICONS.get(s,'')}")
+            s_pct = round(status_counts[s] / total * 100) if total else 0
+            breakdown_parts.append(f"{status_counts[s]} {s} {STATUS_ICONS.get(s,'')} ({s_pct}%)")
     breakdown = "  •  ".join(breakdown_parts) or "No items"
 
     # ── deliverables summary (Done items) ────────────────────────────────────
@@ -325,7 +329,7 @@ def build_messages(data):
     summary_embed = {
         "title":       f"📋  {data['project_title']}  —  {iter_label}",
         "description": (
-            f"{_progress_bar(pct)}\n"
+            f"{_progress_bar(pct, inprog_pct)}\n"
             f"{breakdown}\n"
             f"_{days_note}_"
             f"{support_note}"
