@@ -92,6 +92,7 @@ query ProjectItems($org: String!, $number: Int!, $after: String) {
               labels(first: 10) { nodes { name } }
               repository { nameWithOwner }
               assignees(first: 5) { nodes { login name } }
+              timelineItems(itemTypes: [CONNECTED_EVENT], first: 1) { totalCount }
             }
             ... on PullRequest {
               number
@@ -240,12 +241,25 @@ def fetch_current_iteration(org, project_number, token):
             for a in (content.get("assignees") or {}).get("nodes", [])
         ]
 
+        labels = [
+            lbl["name"]
+            for lbl in (content.get("labels") or {}).get("nodes", [])
+        ]
+        if typ == "PullRequest":
+            has_pr = True
+        elif typ == "Issue":
+            has_pr = (content.get("timelineItems") or {}).get("totalCount", 0) > 0
+        else:
+            has_pr = False
+
         items.append({
             "identifier": identifier,
             "title":      content.get("title", "(untitled)"),
             "url":        content.get("url"),
             "status":     _display_status(status),
             "assignees":  assignees or ["Unassigned"],
+            "labels":     labels,
+            "has_pr":     has_pr,
         })
 
     return {

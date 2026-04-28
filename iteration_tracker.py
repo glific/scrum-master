@@ -65,10 +65,8 @@ def _generate_user_stories(done_items):
         ),
         messages=[{"role": "user", "content": f"Completed tickets:\n{titles}"}],
     )
-    return next(
-        (b.text for b in response.content if b.type == "text"),
-        "Unable to generate stories.",
-    )
+    text = next((b.text for b in response.content if b.type == "text"), "Unable to generate stories.")
+    return text.replace("\n•", "\n\n•")
 
 
 # ── Google Sheets ─────────────────────────────────────────────────────────────
@@ -165,7 +163,12 @@ def main():
     print(f"Period    : {data['starts_at']} → {data['ends_at']}")
     print(f"Progress  : {done}/{total} done ({pct}%)")
 
-    done_items = [i for i in items if i["status"] == "Done"]
+    done_items = [
+        i for i in items
+        if i["status"] == "Done"
+        and i.get("has_pr")
+        and "investigation" not in [l.lower() for l in i.get("labels", [])]
+    ]
     print("Generating user stories via Claude…")
     user_stories = _generate_user_stories(done_items)
 
