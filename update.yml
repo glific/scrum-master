@@ -1,0 +1,44 @@
+name: Glific Iteration Update
+
+on:
+  schedule:
+    # Every Monday at 9:00 AM IST (03:30 UTC)
+    - cron: "30 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (print payload, don't post to Discord)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+jobs:
+  post-update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run update
+        env:
+          GITHUB_TOKEN:    ${{ secrets.PROJECTS_READ_TOKEN }}
+          ORG:             glific
+          PROJECT_NUMBER:  "8"
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            python glific_iteration_update.py --dry-run
+          else
+            python glific_iteration_update.py
+          fi
