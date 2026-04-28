@@ -48,4 +48,6 @@ jobs:
           PROJECT_NUMBER:          "8"
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           SPREADSHEET_ID:          ${{ secrets.SPREADSHEET_ID }}
+          ANTHROPIC_API_KEY:       ${{ secrets.ANTHROPIC_API_KEY }}
+          DISCORD_WEBHOOK:         ${{ secrets.DISCORD_WEBHOOK }}
         run: python iteration_tracker.py
