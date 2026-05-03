@@ -40,6 +40,7 @@ HEADER = [
     "Done",
     "Completion %",
     "Last Updated",
+    "User Stories",
 ]
 
 
@@ -84,7 +85,7 @@ def _sheets_client():
 
 
 def _ensure_header(sheets, spreadsheet_id):
-    result = sheets.values().get(spreadsheetId=spreadsheet_id, range="A1:G1").execute()
+    result = sheets.values().get(spreadsheetId=spreadsheet_id, range="A1:H1").execute()
     if not result.get("values"):
         sheets.values().update(
             spreadsheetId=spreadsheet_id,
@@ -107,7 +108,7 @@ def _find_row(sheets, spreadsheet_id, iteration_title):
 def _write_row(sheets, spreadsheet_id, row_index, values):
     sheets.values().update(
         spreadsheetId=spreadsheet_id,
-        range=f"A{row_index}:G{row_index}",
+        range=f"A{row_index}:H{row_index}",
         valueInputOption="RAW",
         body={"values": [values]},
     ).execute()
@@ -183,6 +184,7 @@ def main():
         done,
         pct,
         date.today().isoformat(),
+        user_stories,
     ]
 
     sheets = _sheets_client()
