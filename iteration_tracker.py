@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-from glific_iteration_update import fetch_previous_iteration
+from glific_iteration_update import fetch_previous_iteration, _progress_bar
 
 load_dotenv()
 
@@ -116,14 +116,15 @@ def _write_row(sheets, spreadsheet_id, row_index, values):
 # ── Discord ───────────────────────────────────────────────────────────────────
 
 
-def _post_to_discord(webhook_url, data, pct, user_stories):
+def _post_to_discord(webhook_url, data, pct, inprogress_pct, user_stories):
     from glific_iteration_update import _format_range
 
     date_range = _format_range(data["starts_at"], data["ends_at"])
     iter_label = f"{data['iteration_title']} ({date_range})"
+    bar = _progress_bar(pct, inprogress_pct)
     embed = {
         "title": f"📖  User Stories  —  {iter_label}",
-        "description": user_stories,
+        "description": f"{bar}\n\n{user_stories}",
         "color": 0x5865F2,
         "footer": {
             "text": f"Glific  •  {pct}% complete  •  {date.today().isoformat()}"
@@ -157,7 +158,9 @@ def main():
     items = data["items"]
     total = len(items)
     done = sum(1 for i in items if i["status"] == "Done")
+    in_progress = sum(1 for i in items if i["status"] in ("In Progress", "In Review"))
     pct = round(done / total * 100) if total else 0
+    inprogress_pct = round(in_progress / total * 100) if total else 0
 
     print(f"Iteration : {data['iteration_title']}")
     print(f"Period    : {data['starts_at']} → {data['ends_at']}")
@@ -198,7 +201,7 @@ def main():
         _write_row(sheets, spreadsheet_id, next_row, row_values)
 
     print("Posting user stories to Discord…")
-    _post_to_discord(webhook, data, pct, user_stories)
+    _post_to_discord(webhook, data, pct, inprogress_pct, user_stories)
 
     print("Done.")
 
