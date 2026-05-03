@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-from glific_iteration_update import fetch_current_iteration
+from glific_iteration_update import fetch_previous_iteration
 
 load_dotenv()
 
@@ -150,7 +150,7 @@ def main():
         )
 
     print("Fetching iteration data from GitHub…")
-    data = fetch_current_iteration(org, int(project_number), token)
+    data = fetch_previous_iteration(org, int(project_number), token)
     if not data:
         sys.exit("No active iteration found — nothing to log.")
 

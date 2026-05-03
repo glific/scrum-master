@@ -2,8 +2,8 @@ name: Iteration Completion Tracker
 
 on:
   schedule:
-    # Every Friday at 9:00 AM IST (03:30 UTC) — week-parity check runs inside the job
-    - cron: "30 3 * * 5"
+    # Every Monday at 10:00 AM IST (04:30 UTC) — week-parity check runs inside the job
+    - cron: "30 4 * * 1"
   workflow_dispatch:
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
             if [ $((10#$WEEK % 2)) -eq 0 ]; then
               echo "run=true" >> $GITHUB_OUTPUT
             else
-              echo "Odd week ($WEEK) — skipping this Friday."
+              echo "Odd week ($WEEK) — skipping this Monday."
               echo "run=false" >> $GITHUB_OUTPUT
             fi
           fi

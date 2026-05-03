@@ -169,6 +169,31 @@ def _find_current_iteration(fields):
     return None
 
 
+def _find_previous_iteration(fields):
+    """Return the most recently completed iteration."""
+    best, best_end = None, None
+    for field in fields:
+        if field.get("__typename") != "ProjectV2IterationField":
+            continue
+        cfg = field.get("configuration") or {}
+        for it in cfg.get("completedIterations", []):
+            start = datetime.strptime(it["startDate"], "%Y-%m-%d").date()
+            end   = start + timedelta(days=it["duration"])
+            if best_end is None or end > best_end:
+                best, best_end = it, end
+    if best is None:
+        return None
+    start = datetime.strptime(best["startDate"], "%Y-%m-%d").date()
+    end   = start + timedelta(days=best["duration"])
+    return {
+        "id":         best["id"],
+        "title":      best["title"],
+        "start":      start.isoformat(),
+        "end":        (end - timedelta(days=1)).isoformat(),
+        "total_days": best["duration"],
+    }
+
+
 def _paginate_items(org, number, token):
     all_items, cursor = [], None
     while True:
@@ -272,6 +297,81 @@ def fetch_current_iteration(org, project_number, token):
         "items":          items,
         "support_skipped": support_count,
     }
+
+def fetch_previous_iteration(org, project_number, token):
+    meta    = _gql(PROJECT_META_QUERY, {"org": org, "number": project_number}, token)
+    project = meta["organization"]["projectV2"]
+    if not project:
+        return None
+
+    previous = _find_previous_iteration(project["fields"]["nodes"])
+    if not previous:
+        return None
+
+    raw_items     = _paginate_items(org, project_number, token)
+    items         = []
+    support_count = 0
+
+    for item in raw_items:
+        content = item.get("content") or {}
+
+        status = iteration_id = None
+        for fv in item["fieldValues"]["nodes"]:
+            t = fv.get("__typename")
+            if t == "ProjectV2ItemFieldSingleSelectValue":
+                if (fv.get("field") or {}).get("name", "").lower() == "status":
+                    status = fv.get("name")
+            elif t == "ProjectV2ItemFieldIterationValue":
+                iteration_id = fv.get("iterationId")
+
+        if iteration_id != previous["id"]:
+            continue
+
+        if _is_support(content):
+            support_count += 1
+            continue
+
+        typ        = content.get("__typename", "")
+        identifier = (
+            f"{content['repository']['nameWithOwner'].split('/')[-1]}#{content['number']}"
+            if typ in ("Issue", "PullRequest") else "Draft"
+        )
+        assignees = [
+            a.get("name") or a.get("login")
+            for a in (content.get("assignees") or {}).get("nodes", [])
+        ]
+        labels = [
+            lbl["name"]
+            for lbl in (content.get("labels") or {}).get("nodes", [])
+        ]
+        if typ == "PullRequest":
+            has_pr = True
+        elif typ == "Issue":
+            has_pr = (content.get("timelineItems") or {}).get("totalCount", 0) > 0
+        else:
+            has_pr = False
+
+        items.append({
+            "identifier": identifier,
+            "title":      content.get("title", "(untitled)"),
+            "url":        content.get("url"),
+            "status":     _display_status(status),
+            "assignees":  assignees or ["Unassigned"],
+            "labels":     labels,
+            "has_pr":     has_pr,
+        })
+
+    return {
+        "project_title":   project["title"],
+        "iteration_title": previous["title"],
+        "starts_at":       previous["start"],
+        "ends_at":         previous["end"],
+        "days_elapsed":    previous["total_days"],
+        "total_days":      previous["total_days"],
+        "items":           items,
+        "support_skipped": support_count,
+    }
+
 
 # ── Message builder ──────────────────────────────────────────────────────────
 
