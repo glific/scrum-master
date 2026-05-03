@@ -19,18 +19,37 @@ jobs:
   post-update:
     runs-on: ubuntu-latest
     steps:
+      - name: Check alternate Monday (odd weeks)
+        id: parity
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=true" >> $GITHUB_OUTPUT
+          else
+            WEEK=$(date +%V)
+            if [ $((10#$WEEK % 2)) -eq 1 ]; then
+              echo "run=true" >> $GITHUB_OUTPUT
+            else
+              echo "Even week ($WEEK) — skipping this Monday."
+              echo "run=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
       - name: Checkout
+        if: steps.parity.outputs.run == 'true'
         uses: actions/checkout@v4
 
       - name: Set up Python
+        if: steps.parity.outputs.run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install dependencies
+        if: steps.parity.outputs.run == 'true'
         run: pip install -r requirements.txt
 
       - name: Run update
+        if: steps.parity.outputs.run == 'true'
         env:
           GITHUB_TOKEN:      ${{ secrets.PROJECTS_READ_TOKEN }}
           ORG:               glific
