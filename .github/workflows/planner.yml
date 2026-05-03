@@ -1,0 +1,51 @@
+name: Iteration Planner
+
+on:
+  schedule:
+    # Every Monday at 12:00 PM IST (06:30 UTC) — week-parity check runs inside the job
+    - cron: "30 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check alternate Monday (even weeks)
+        id: parity
+        run: |
+          # Manual triggers always run; scheduled runs check ISO week parity
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=true" >> $GITHUB_OUTPUT
+          else
+            WEEK=$(date +%V)
+            if [ $((10#$WEEK % 2)) -eq 0 ]; then
+              echo "run=true" >> $GITHUB_OUTPUT
+            else
+              echo "Odd week ($WEEK) — skipping this Monday."
+              echo "run=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Checkout
+        if: steps.parity.outputs.run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: steps.parity.outputs.run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        if: steps.parity.outputs.run == 'true'
+        run: pip install -r requirements.txt
+
+      - name: Run planner
+        if: steps.parity.outputs.run == 'true'
+        env:
+          GITHUB_TOKEN:      ${{ secrets.PROJECTS_READ_TOKEN }}
+          ORG:               glific
+          PROJECT_NUMBER:    "8"
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DISCORD_WEBHOOK:   ${{ secrets.DISCORD_WEBHOOK }}
+        run: python iteration_planner.py
