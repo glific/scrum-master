@@ -10,18 +10,24 @@ jobs:
   track:
     runs-on: ubuntu-latest
     steps:
-      - name: Check alternate Friday
+      - name: Check iteration week (first Monday of iteration)
         id: parity
         run: |
-          # Manual triggers always run; scheduled runs check ISO week parity
+          # Manual triggers always run; scheduled runs check iteration position.
+          # Epoch is a known first-Monday-of-iteration; counting weeks from it
+          # avoids ISO week-number resets at year boundaries (e.g. 2026 has 53
+          # ISO weeks, which would break naive parity checks).
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "run=true" >> $GITHUB_OUTPUT
           else
-            WEEK=$(date +%V)
-            if [ $((10#$WEEK % 2)) -eq 0 ]; then
+            EPOCH_TS=$(date -d "2026-05-04" +%s)
+            TODAY_TS=$(date +%s)
+            WEEKS=$(( (TODAY_TS - EPOCH_TS) / 86400 / 7 ))
+            ITER_WEEK=$((WEEKS % 2))
+            if [ "$ITER_WEEK" -eq 0 ]; then
               echo "run=true" >> $GITHUB_OUTPUT
             else
-              echo "Odd week ($WEEK) — skipping this Monday."
+              echo "Second Monday of iteration — skipping."
               echo "run=false" >> $GITHUB_OUTPUT
             fi
           fi
