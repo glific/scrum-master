@@ -399,7 +399,7 @@ def _bar_color(pct):
 
 
 def _summarise_done(done_items):
-    """Call Claude to summarise completed tickets into 2-3 sentences."""
+    """Call Claude to summarise completed tickets into 3-5 bullet points."""
     if not done_items:
         return "_None yet_"
     titles = "\n".join(f"- {i['title']}" for i in done_items)

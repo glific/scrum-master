@@ -2,7 +2,7 @@
 """
 Glific — Planned deliverables → Discord
 
-Runs at 12 PM IST on alternate Mondays (odd ISO weeks). Fetches the current
+Runs at 12 PM IST on alternate Mondays (first Monday of each iteration). Fetches the current
 iteration and posts a Claude-generated overview of planned work to Discord.
 
 Required env vars:

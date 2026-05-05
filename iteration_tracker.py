@@ -2,7 +2,7 @@
 """
 Glific — Iteration completion rate → Google Sheets tracker + user stories → Discord
 
-Runs every alternate Friday. Logs the done-ticket percentage for the current
+Runs every alternate Monday. Logs the done-ticket percentage for the previous
 iteration to a Google Sheet (each iteration gets one row; re-running updates
 in place) and posts Claude-generated user stories to Discord.
 
@@ -154,7 +154,7 @@ def main():
     print("Fetching iteration data from GitHub…")
     data = fetch_previous_iteration(org, int(project_number), token)
     if not data:
-        sys.exit("No active iteration found — nothing to log.")
+        sys.exit("No completed iteration found — nothing to log.")
 
     items = data["items"]
     total = len(items)
