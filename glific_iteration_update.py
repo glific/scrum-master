@@ -3,7 +3,7 @@
 Glific — Iteration Completion Rate + Deliverables Summary → Discord
 ────────────────────────────────────────────────────────────────────
 Fetches the current iteration from GitHub Projects v2, filters out
-"support"-labelled tickets, calculates the completion rate, and posts
+support-process repo items and epics, calculates the completion rate, and posts
 a rich summary to Discord.
 
 Scheduled run : every Monday 9 AM IST via GitHub Actions cron
@@ -26,7 +26,6 @@ load_dotenv()
 # ── Constants ────────────────────────────────────────────────────────────────
 
 GITHUB_API_URL   = "https://api.github.com/graphql"
-SUPPORT_LABEL    = "support"          # tickets with this label are excluded
 
 STATUS_ORDER     = ["Done", "In Review", "In Progress", "To Do"]
 STATUS_CLOSED    = {"done", "closed"}
@@ -209,10 +208,11 @@ def _paginate_items(org, number, token):
     return all_items
 
 
-def _is_support(content):
-    """Return True if any label on the issue/PR is 'support' (case-insensitive)."""
-    labels = (content.get("labels") or {}).get("nodes", [])
-    return any(lbl.get("name", "").lower() == SUPPORT_LABEL for lbl in labels)
+def _should_skip(content):
+    """Return True if the item belongs to the support-process repo or is an Epic."""
+    repo = (content.get("repository") or {}).get("nameWithOwner", "")
+    title = content.get("title", "")
+    return repo == "glific/support-process" or title.startswith("[Epic]")
 
 
 def _display_status(raw):
@@ -250,8 +250,7 @@ def fetch_current_iteration(org, project_number, token):
         if iteration_id != current["id"]:
             continue
 
-        # ── skip support tickets ────────────────────────────────────────────
-        if _is_support(content):
+        if _should_skip(content):
             support_count += 1
             continue
 
@@ -327,7 +326,7 @@ def fetch_previous_iteration(org, project_number, token):
         if iteration_id != previous["id"]:
             continue
 
-        if _is_support(content):
+        if _should_skip(content):
             support_count += 1
             continue
 
@@ -456,7 +455,7 @@ def build_messages(data):
     iter_label    = f"{data['iteration_title']} ({date_range})"
     days_note     = f"Day {data['days_elapsed']} of {data['total_days']}"
     support_note  = (
-        f"\n> _{data['support_skipped']} support ticket(s) excluded from calculations_"
+        f"\n> _{data['support_skipped']} item(s) excluded from calculations (support-process / epics)_"
         if data["support_skipped"] else ""
     )
 
@@ -536,7 +535,7 @@ def main():
     closed = sum(1 for i in data["items"] if i["status"] == "Done")
     pct    = round(closed / total * 100) if total else 0
     print(f"Iteration : {data['iteration_title']}  ({data['starts_at']} → {data['ends_at']})")
-    print(f"Items     : {total} total  |  {closed} done  |  {data['support_skipped']} support skipped")
+    print(f"Items     : {total} total  |  {closed} done  |  {data['support_skipped']} skipped (support-process/epics)")
     print(f"Completion: {pct}%")
 
     payloads = build_messages(data)
