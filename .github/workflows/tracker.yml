@@ -5,6 +5,11 @@ on:
     # Every Monday at 10:00 AM IST (04:30 UTC) — week-parity check runs inside the job
     - cron: "30 4 * * 1"
   workflow_dispatch:
+    inputs:
+      discord_webhook:
+        description: "Discord webhook URL (overrides secret)"
+        required: false
+        type: string
 
 jobs:
   track:
@@ -55,7 +60,7 @@ jobs:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           SPREADSHEET_ID:          ${{ secrets.SPREADSHEET_ID }}
           ANTHROPIC_API_KEY:       ${{ secrets.ANTHROPIC_API_KEY }}
-          DISCORD_WEBHOOK:         ${{ secrets.DISCORD_WEBHOOK }}
+          DISCORD_WEBHOOK:         ${{ inputs.discord_webhook || secrets.DISCORD_WEBHOOK }}
         run: python iteration_tracker.py
 
       - name: Run PR merge time tracker
