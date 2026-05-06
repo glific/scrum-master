@@ -57,3 +57,13 @@ jobs:
           ANTHROPIC_API_KEY:       ${{ secrets.ANTHROPIC_API_KEY }}
           DISCORD_WEBHOOK:         ${{ secrets.DISCORD_WEBHOOK }}
         run: python iteration_tracker.py
+
+      - name: Run PR merge time tracker
+        if: steps.parity.outputs.run == 'true'
+        env:
+          GITHUB_TOKEN:            ${{ secrets.PROJECTS_READ_TOKEN }}
+          ORG:                     glific
+          PROJECT_NUMBER:          "8"
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          SPREADSHEET_ID:          ${{ secrets.SPREADSHEET_ID }}
+        run: python pr_merge_time.py
