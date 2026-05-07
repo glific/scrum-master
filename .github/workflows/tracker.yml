@@ -51,6 +51,16 @@ jobs:
         if: steps.parity.outputs.run == 'true'
         run: pip install -r requirements.txt
 
+      - name: Validate Discord webhook override
+        if: steps.parity.outputs.run == 'true' && github.event_name == 'workflow_dispatch' && inputs.discord_webhook != ''
+        env:
+          WEBHOOK_INPUT: ${{ inputs.discord_webhook }}
+        run: |
+          if ! [[ "$WEBHOOK_INPUT" =~ ^https://(discord\.com|ptb\.discord\.com|canary\.discord\.com)/api/webhooks/[0-9]+/[A-Za-z0-9._-]+$ ]]; then
+            echo "Error: discord_webhook must be a valid Discord webhook URL."
+            exit 1
+          fi
+
       - name: Run tracker
         if: steps.parity.outputs.run == 'true'
         env:
