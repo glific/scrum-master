@@ -118,14 +118,28 @@ def _write_row(sheets, spreadsheet_id, row_index, values):
 
 
 def _post_to_discord(webhook_url, data, pct, inprogress_pct, user_stories):
-    from glific_iteration_update import _format_range
+    from collections import defaultdict
+    from glific_iteration_update import _format_range, STATUS_ORDER, STATUS_ICONS
 
     date_range = _format_range(data["starts_at"], data["ends_at"])
     iter_label = f"{data['iteration_title']} ({date_range})"
     bar = _progress_bar(pct, inprogress_pct)
+
+    items = data["items"]
+    total = len(items)
+    status_counts = defaultdict(int)
+    for i in items:
+        status_counts[i["status"]] += 1
+    breakdown_parts = []
+    for s in STATUS_ORDER:
+        if status_counts[s]:
+            s_pct = round(status_counts[s] / total * 100) if total else 0
+            breakdown_parts.append(f"{status_counts[s]} {s} {STATUS_ICONS.get(s, '⚪')} ({s_pct}%)")
+    breakdown = "  •  ".join(breakdown_parts) or "No items"
+
     embed = {
         "title": f"📖  User Stories  —  {iter_label}",
-        "description": f"{bar}\n\n{user_stories}",
+        "description": f"{bar}\n{breakdown}\n\n{user_stories}",
         "color": 0x5865F2,
         "footer": {
             "text": f"Glific  •  {pct}% complete  •  {date.today().isoformat()}"
