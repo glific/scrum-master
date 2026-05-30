@@ -1,0 +1,44 @@
+name: PR Review Reminder
+
+on:
+  schedule:
+    # Every day at 12:00 PM IST (06:30 UTC)
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+    inputs:
+      discord_webhook:
+        description: "Discord webhook URL (overrides secret)"
+        required: false
+        type: string
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Validate Discord webhook override
+        if: github.event_name == 'workflow_dispatch' && inputs.discord_webhook != ''
+        env:
+          WEBHOOK_INPUT: ${{ inputs.discord_webhook }}
+        run: |
+          if ! [[ "$WEBHOOK_INPUT" =~ ^https://(discord\.com|ptb\.discord\.com|canary\.discord\.com)/api/webhooks/[0-9]+/[A-Za-z0-9._-]+$ ]]; then
+            echo "Error: discord_webhook must be a valid Discord webhook URL."
+            exit 1
+          fi
+
+      - name: Run PR review reminder
+        env:
+          GITHUB_TOKEN:    ${{ secrets.PROJECTS_READ_TOKEN }}
+          ORG:             glific
+          DISCORD_WEBHOOK: ${{ inputs.discord_webhook || secrets.DISCORD_WEBHOOK }}
+        run: python pr_review_reminder.py
