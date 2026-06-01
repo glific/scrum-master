@@ -1,0 +1,36 @@
+name: Weekly Release Tracker
+
+on:
+  schedule:
+    # Every Saturday at 11:00 PM IST (17:30 UTC)
+    - cron: "30 17 * * 6"
+  workflow_dispatch:
+    inputs:
+      saturday_date:
+        description: "Saturday date to fetch releases for (YYYY-MM-DD). Defaults to today."
+        required: false
+        type: string
+
+jobs:
+  track-releases:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run release tracker
+        env:
+          GITHUB_TOKEN:            ${{ secrets.PROJECTS_READ_TOKEN }}
+          ORG:                     glific
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          SPREADSHEET_ID:          ${{ secrets.SPREADSHEET_ID }}
+          SATURDAY_DATE:           ${{ inputs.saturday_date }}
+        run: python release_tracker.py
