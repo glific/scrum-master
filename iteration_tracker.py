@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-from glific_iteration_update import fetch_previous_iteration, _progress_bar
+from glific_iteration_update import _progress_bar, fetch_previous_iteration
 
 load_dotenv()
 
@@ -39,6 +39,7 @@ HEADER = [
     "Total Tickets",
     "Done",
     "Completion %",
+    "Carry Over %",
     "Last Updated",
     "User Stories",
 ]
@@ -66,7 +67,10 @@ def _generate_user_stories(done_items):
         ),
         messages=[{"role": "user", "content": f"Completed tickets:\n{titles}"}],
     )
-    text = next((b.text for b in response.content if b.type == "text"), "Unable to generate stories.")
+    text = next(
+        (b.text for b in response.content if b.type == "text"),
+        "Unable to generate stories.",
+    )
     return text.replace("\n•", "\n\n•")
 
 
@@ -85,7 +89,7 @@ def _sheets_client():
 
 
 def _ensure_header(sheets, spreadsheet_id):
-    result = sheets.values().get(spreadsheetId=spreadsheet_id, range="A1:H1").execute()
+    result = sheets.values().get(spreadsheetId=spreadsheet_id, range="A1:I1").execute()
     if not result.get("values"):
         sheets.values().update(
             spreadsheetId=spreadsheet_id,
@@ -108,7 +112,7 @@ def _find_row(sheets, spreadsheet_id, iteration_title):
 def _write_row(sheets, spreadsheet_id, row_index, values):
     sheets.values().update(
         spreadsheetId=spreadsheet_id,
-        range=f"A{row_index}:H{row_index}",
+        range=f"A{row_index}:I{row_index}",
         valueInputOption="RAW",
         body={"values": [values]},
     ).execute()
@@ -119,7 +123,8 @@ def _write_row(sheets, spreadsheet_id, row_index, values):
 
 def _post_to_discord(webhook_url, data, pct, inprogress_pct, user_stories):
     from collections import defaultdict
-    from glific_iteration_update import _format_range, STATUS_ORDER, STATUS_ICONS
+
+    from glific_iteration_update import STATUS_ICONS, STATUS_ORDER, _format_range
 
     date_range = _format_range(data["starts_at"], data["ends_at"])
     iter_label = f"{data['iteration_title']} ({date_range})"
@@ -134,7 +139,9 @@ def _post_to_discord(webhook_url, data, pct, inprogress_pct, user_stories):
     for s in STATUS_ORDER:
         if status_counts[s]:
             s_pct = round(status_counts[s] / total * 100) if total else 0
-            breakdown_parts.append(f"{status_counts[s]} {s} {STATUS_ICONS.get(s, '⚪')} ({s_pct}%)")
+            breakdown_parts.append(
+                f"{status_counts[s]} {s} {STATUS_ICONS.get(s, '⚪')} ({s_pct}%)"
+            )
     breakdown = "  •  ".join(breakdown_parts) or "No items"
 
     embed = {
@@ -182,7 +189,8 @@ def main():
     print(f"Progress  : {done}/{total} done ({pct}%)")
 
     done_items = [
-        i for i in items
+        i
+        for i in items
         if i["status"] == "Done"
         and i.get("has_pr")
         and "investigation" not in [l.lower() for l in i.get("labels", [])]
@@ -197,6 +205,7 @@ def main():
         total,
         done,
         pct,
+        100 - pct,
         date.today().isoformat(),
         user_stories,
     ]
