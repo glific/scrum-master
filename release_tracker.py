@@ -190,9 +190,44 @@ def _write_row(sheets, spreadsheet_id: str, row_index: int, values: list):
     ).execute()
 
 
-def _month_already_in_sheet(rows: list[list[str]], month_label: str) -> bool:
-    """True if any existing row already carries this month label in column A."""
-    return any(row and row[0] == month_label for row in rows)
+SUMMARY_COL_START = "H"   # Summary table starts at column H
+SUMMARY_HEADER = ["Month", "Avg Releases/Week"]
+
+
+def _rebuild_summary(sheets, spreadsheet_id: str, rows: list[list[str]]):
+    """
+    Write a dynamic summary table in columns H–I (starting at H1) showing each
+    month and its average weekly release count, derived from the data in A:D.
+    Rows is the current sheet data (including header at index 0).
+    """
+    # Collect ordered unique months from column A (skip header row)
+    seen = []
+    for row in rows[1:]:
+        month = row[0] if row else ""
+        if month and month not in seen:
+            seen.append(month)
+
+    summary_values = [SUMMARY_HEADER]
+    for i, month in enumerate(seen, start=2):   # data starts at row 2
+        # AVERAGEIF over column A (month) against column D (release count)
+        formula = f'=AVERAGEIF(\'Releases\'!A:A,H{i},\'Releases\'!D:D)'
+        summary_values.append([month, formula])
+
+    # Clear old summary area first, then write fresh
+    last_row = len(summary_values) + 5   # a little buffer for cleared leftovers
+    sheets.values().clear(
+        spreadsheetId=spreadsheet_id,
+        range=f"'{SHEET_NAME}'!H1:I{last_row}",
+    ).execute()
+
+    if summary_values:
+        sheets.values().update(
+            spreadsheetId=spreadsheet_id,
+            range=f"'{SHEET_NAME}'!H1",
+            valueInputOption="USER_ENTERED",
+            body={"values": summary_values},
+        ).execute()
+    print(f"Summary table updated ({len(seen)} month(s)).")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -254,11 +289,8 @@ def main():
 
     rows = _all_rows(sheets, spreadsheet_id)
 
-    # Decide whether to show the month label (only on the first week of that month)
-    month_cell = month_label if not _month_already_in_sheet(rows[1:], month_label) else ""
-
     row_values = [
-        month_cell,
+        month_label,
         week_start.isoformat(),
         week_end.isoformat(),
         release_count,
@@ -269,14 +301,15 @@ def main():
     existing_row = _find_week_row(rows, week_start.isoformat())
     if existing_row:
         print(f"Updating existing row {existing_row}…")
-        # Preserve the month cell if it was already set (don't blank it on re-run)
-        if rows[existing_row - 1] and rows[existing_row - 1][0]:
-            row_values[0] = rows[existing_row - 1][0]
         _write_row(sheets, spreadsheet_id, existing_row, row_values)
     else:
         next_row = len(rows) + 1
         print(f"Appending new row {next_row}…")
         _write_row(sheets, spreadsheet_id, next_row, row_values)
+
+    # Refresh rows after the write so the summary reflects the latest data
+    updated_rows = _all_rows(sheets, spreadsheet_id)
+    _rebuild_summary(sheets, spreadsheet_id, updated_rows)
 
     print("Done.")
 
