@@ -25,7 +25,7 @@ load_dotenv()
 
 GITHUB_REST_URL = "https://api.github.com/search/issues"
 INCLUDED_REPOS  = {"glific", "glific-frontend"}
-CORE_TEAM       = {"priyanshu6238", "shijithkjayan", "akanshaaa19", "AmishaBisht", "rvignesh89", "dlobo", "mdshamoon"}
+CORE_TEAM       = {"priyanshu6238", "shijithkjayan", "akanshaaa19", "AmishaBisht", "rvignesh89"}
 
 
 # ── GitHub helpers ────────────────────────────────────────────────────────────
@@ -89,14 +89,13 @@ def _fetch_stale_prs(org, token):
             author    = (item.get("user") or {}).get("login", "")
             reviewers = _fetch_reviewers(org, repo_name, item["number"], headers)
             prs.append({
-                "number":     item["number"],
-                "title":      item["title"],
-                "url":        item["html_url"],
-                "repo":       repo_name,
-                "age_days":   age_days,
-                "author":     author,
-                "reviewers":  reviewers,
-                "dependabot": author == "dependabot[bot]",
+                "number":   item["number"],
+                "title":    item["title"],
+                "url":      item["html_url"],
+                "repo":     repo_name,
+                "age_days": age_days,
+                "author":   author,
+                "reviewers": reviewers,
             })
 
         if len(items) < 100:
@@ -125,40 +124,18 @@ def _pr_lines(prs, limit):
 
 
 def build_payload(prs):
-    if not prs:
+    team_prs = [pr for pr in prs if pr["author"] in CORE_TEAM]
+
+    if not team_prs:
         return None
 
-    team_prs      = [pr for pr in prs if not pr["dependabot"] and pr["author"] in CORE_TEAM]
-    oss_prs       = [pr for pr in prs if not pr["dependabot"] and pr["author"] not in CORE_TEAM]
-    dependabot    = [pr for pr in prs if pr["dependabot"]]
+    lines    = _pr_lines(team_prs, 20)
+    overflow = len(team_prs) - 20
+    body     = "\n".join(lines)
+    if overflow > 0:
+        body += f"\n_…and {overflow} more_"
 
-    sections = []
-
-    if team_prs:
-        lines    = _pr_lines(team_prs, 20)
-        overflow = len(team_prs) - 20
-        body     = "\n".join(lines)
-        if overflow > 0:
-            body += f"\n_…and {overflow} more_"
-        sections.append(f"**👥 Team PRs**\n{body}")
-
-    if oss_prs:
-        lines    = _pr_lines(oss_prs, 20)
-        overflow = len(oss_prs) - 20
-        body     = "\n".join(lines)
-        if overflow > 0:
-            body += f"\n_…and {overflow} more_"
-        sections.append(f"**🌍 Open Source Contributions**\n{body}")
-
-    if dependabot:
-        lines    = _pr_lines(dependabot, 10)
-        overflow = len(dependabot) - 10
-        body     = "\n".join(lines)
-        if overflow > 0:
-            body += f"\n_…and {overflow} more_"
-        sections.append(f"**🤖 Dependabot PRs**\n{body}")
-
-    description = "\n\n".join(sections)
+    description  = f"**👥 Team PRs**\n{body}"
     description += "\n\nPlease make sure to get on a call at **4:00 PM** for PR review and make sure these get reviewed! 🙏"
 
     embed = {
@@ -201,11 +178,10 @@ def main():
 
     print(f"Found {len(prs)} PR(s).")
 
-    if not prs:
-        print("No stale PRs — skipping Discord post.")
-        return
-
     payload = build_payload(prs)
+    if payload is None:
+        print("No stale team PRs — skipping Discord post.")
+        return
 
     if args.dry_run:
         print("\n── Dry-run payload ──────────────────────────────────────")
