@@ -3,3 +3,5 @@ python-dotenv==1.0.1
 anthropic>=0.40.0
 google-auth>=2.0.0
 google-api-python-client>=2.0.0
+pytest>=8.0.0
+pytest-cov>=5.0.0
