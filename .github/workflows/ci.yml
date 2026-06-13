@@ -24,4 +24,4 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short --cov=. --cov-report=term-missing --cov-omit=".venv/*,tests/*"
+        run: pytest tests/ -v
