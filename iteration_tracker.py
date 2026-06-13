@@ -27,7 +27,11 @@ from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-from glific_iteration_update import _progress_bar, fetch_previous_iteration
+from glific_iteration_update import (
+    _progress_bar,
+    fetch_current_iteration,
+    fetch_previous_iteration,
+)
 
 load_dotenv()
 
@@ -36,8 +40,10 @@ HEADER = [
     "Iteration",
     "Start Date",
     "End Date",
+    "Planned Total",
     "Total Tickets",
     "Done",
+    "Moved Out",
     "Completion %",
     "Carry Over %",
     "Last Updated",
@@ -89,7 +95,7 @@ def _sheets_client():
 
 
 def _ensure_header(sheets, spreadsheet_id):
-    result = sheets.values().get(spreadsheetId=spreadsheet_id, range="A1:I1").execute()
+    result = sheets.values().get(spreadsheetId=spreadsheet_id, range="A1:K1").execute()
     if not result.get("values"):
         sheets.values().update(
             spreadsheetId=spreadsheet_id,
@@ -112,10 +118,22 @@ def _find_row(sheets, spreadsheet_id, iteration_title):
 def _write_row(sheets, spreadsheet_id, row_index, values):
     sheets.values().update(
         spreadsheetId=spreadsheet_id,
-        range=f"A{row_index}:I{row_index}",
+        range=f"A{row_index}:K{row_index}",
         valueInputOption="RAW",
         body={"values": [values]},
     ).execute()
+
+
+def _get_planned_total(sheets, spreadsheet_id, iteration_title):
+    """Return the saved planned total for an iteration, or None if not found."""
+    result = sheets.values().get(spreadsheetId=spreadsheet_id, range="A:D").execute()
+    for row in result.get("values", [])[1:]:  # skip header
+        if row and row[0] == iteration_title:
+            try:
+                return int(row[3])  # column D = Planned Total
+            except (IndexError, ValueError):
+                return None
+    return None
 
 
 # ── Discord ───────────────────────────────────────────────────────────────────
@@ -188,6 +206,19 @@ def main():
     print(f"Period    : {data['starts_at']} → {data['ends_at']}")
     print(f"Progress  : {done}/{total} done ({pct}%)")
 
+    sheets = _sheets_client()
+    _ensure_header(sheets, spreadsheet_id)
+
+    # Look up planned total recorded at iteration start; compute moved-out tickets.
+    planned_total = _get_planned_total(sheets, spreadsheet_id, data["iteration_title"])
+    if planned_total is not None:
+        moved_out = max(0, planned_total - total)
+        print(f"Planned   : {planned_total} tickets  →  Moved out: {moved_out}")
+    else:
+        moved_out = ""
+        planned_total = ""
+        print("Planned total not found in sheet — moved-out count unavailable.")
+
     done_items = [
         i
         for i in items
@@ -202,16 +233,15 @@ def main():
         data["iteration_title"],
         data["starts_at"],
         data["ends_at"],
+        planned_total,
         total,
         done,
+        moved_out,
         pct,
         100 - pct,
         date.today().isoformat(),
         user_stories,
     ]
-
-    sheets = _sheets_client()
-    _ensure_header(sheets, spreadsheet_id)
 
     existing_row = _find_row(sheets, spreadsheet_id, data["iteration_title"])
     if existing_row:
@@ -224,6 +254,43 @@ def main():
         next_row = len(result.get("values", [])) + 1
         print(f"Appending new row {next_row}…")
         _write_row(sheets, spreadsheet_id, next_row, row_values)
+
+    # Record the current (new) iteration's planned ticket count for next run.
+    print("Fetching current iteration to snapshot planned ticket count…")
+    current_data = fetch_current_iteration(org, int(project_number), token)
+    if current_data:
+        current_title = current_data["iteration_title"]
+        current_total = len(current_data["items"])
+        print(f"Current   : {current_title}  →  {current_total} planned tickets")
+        curr_row = _find_row(sheets, spreadsheet_id, current_title)
+        if curr_row:
+            # Patch only the Planned Total cell (column D) to avoid overwriting live data.
+            sheets.values().update(
+                spreadsheetId=spreadsheet_id,
+                range=f"D{curr_row}",
+                valueInputOption="RAW",
+                body={"values": [[current_total]]},
+            ).execute()
+        else:
+            result = (
+                sheets.values().get(spreadsheetId=spreadsheet_id, range="A:A").execute()
+            )
+            next_row = len(result.get("values", [])) + 1
+            _write_row(
+                sheets,
+                spreadsheet_id,
+                next_row,
+                [
+                    current_title,
+                    current_data["starts_at"],
+                    current_data["ends_at"],
+                    current_total,
+                    "", "", "", "", "", "", "",
+                ],
+            )
+        print("Planned ticket count snapshot saved.")
+    else:
+        print("No active iteration found — skipping planned count snapshot.")
 
     print("Posting user stories to Discord…")
     _post_to_discord(webhook, data, pct, inprogress_pct, user_stories)
