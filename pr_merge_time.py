@@ -18,7 +18,7 @@ Required env vars:
 import json
 import os
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import requests
 from dotenv import load_dotenv
@@ -86,15 +86,32 @@ def _fetch_merged_prs(org, start_date_iso, end_date_iso, token):
     return prs
 
 
+def _business_days(start: datetime, end: datetime) -> float:
+    """Elapsed time between two datetimes counting only Mon–Fri hours."""
+    if end <= start:
+        return 0.0
+    elapsed = 0.0
+    cursor = start
+    while cursor < end:
+        next_midnight = (cursor + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        chunk_end = min(next_midnight, end)
+        if cursor.weekday() < 5:  # Monday=0 … Friday=4
+            elapsed += (chunk_end - cursor).total_seconds()
+        cursor = next_midnight
+    return elapsed / 86400
+
+
 def _avg_days_to_merge(prs):
-    """Average days from PR creation to merge, rounded to 1 decimal place."""
+    """Average business days (Mon–Fri) from PR creation to merge, rounded to 1 decimal."""
     if not prs:
         return 0.0
     total = 0.0
     for pr in prs:
         created = datetime.fromisoformat(pr["created_at"].rstrip("Z")).replace(tzinfo=timezone.utc)
         merged = datetime.fromisoformat(pr["merged_at"].rstrip("Z")).replace(tzinfo=timezone.utc)
-        total += (merged - created).total_seconds() / 86400
+        total += _business_days(created, merged)
     return round(total / len(prs), 1)
 
 

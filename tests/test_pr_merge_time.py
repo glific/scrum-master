@@ -7,6 +7,7 @@ import pytest
 
 from pr_merge_time import (
     _avg_days_to_merge,
+    _business_days,
     _ensure_header,
     _ensure_sheet_tab,
     _fetch_merged_prs,
@@ -16,27 +17,79 @@ from pr_merge_time import (
 )
 
 
+# ── _business_days ────────────────────────────────────────────────────────────
+
+class TestBusinessDays:
+    def _dt(self, iso):
+        return datetime.fromisoformat(iso).replace(tzinfo=timezone.utc)
+
+    def test_same_datetime_returns_zero(self):
+        dt = self._dt("2026-06-01T10:00:00")
+        assert _business_days(dt, dt) == 0.0
+
+    def test_end_before_start_returns_zero(self):
+        assert _business_days(self._dt("2026-06-02T10:00:00"), self._dt("2026-06-01T10:00:00")) == 0.0
+
+    def test_one_full_weekday(self):
+        # Monday midnight to Tuesday midnight = 1 business day
+        start = self._dt("2026-06-01T00:00:00")  # Monday
+        end   = self._dt("2026-06-02T00:00:00")  # Tuesday
+        assert _business_days(start, end) == 1.0
+
+    def test_weekend_not_counted(self):
+        # Friday midnight to Monday midnight = 2 business days (Fri + ... wait)
+        # Friday 00:00 to Monday 00:00: Fri=1 day, Sat=0, Sun=0 → 1 business day
+        start = self._dt("2026-06-05T00:00:00")  # Friday
+        end   = self._dt("2026-06-08T00:00:00")  # Monday
+        assert _business_days(start, end) == 1.0
+
+    def test_friday_to_monday_partial(self):
+        # Created Friday 5pm, merged Monday 9am
+        # Friday 5pm–midnight = 7h, Saturday skip, Sunday skip, Monday midnight–9am = 9h
+        start = self._dt("2026-06-05T17:00:00")  # Friday 5pm
+        end   = self._dt("2026-06-08T09:00:00")  # Monday 9am
+        result = _business_days(start, end)
+        expected = (7 + 9) / 24  # 16 business hours
+        assert abs(result - expected) < 0.01
+
+    def test_full_week(self):
+        # Monday to next Monday = 5 business days
+        start = self._dt("2026-06-01T00:00:00")  # Monday
+        end   = self._dt("2026-06-08T00:00:00")  # next Monday
+        assert _business_days(start, end) == 5.0
+
+    def test_saturday_start_not_counted(self):
+        # Saturday noon to Sunday noon = 0 business days
+        start = self._dt("2026-06-06T12:00:00")  # Saturday
+        end   = self._dt("2026-06-07T12:00:00")  # Sunday
+        assert _business_days(start, end) == 0.0
+
+
 # ── _avg_days_to_merge ────────────────────────────────────────────────────────
 
 class TestAvgDaysToMerge:
     def test_empty_list(self):
         assert _avg_days_to_merge([]) == 0.0
 
-    def test_single_pr_one_day(self):
+    def test_single_pr_one_weekday(self):
+        # Monday to Tuesday = 1 business day
         prs = [{"created_at": "2026-06-01T00:00:00Z", "merged_at": "2026-06-02T00:00:00Z"}]
         assert _avg_days_to_merge(prs) == 1.0
 
-    def test_multiple_prs(self):
-        prs = [
-            {"created_at": "2026-06-01T00:00:00Z", "merged_at": "2026-06-03T00:00:00Z"},  # 2 days
-            {"created_at": "2026-06-01T00:00:00Z", "merged_at": "2026-06-05T00:00:00Z"},  # 4 days
-        ]
-        assert _avg_days_to_merge(prs) == 3.0
+    def test_weekend_excluded(self):
+        # Monday to Wednesday spanning a weekend-free week = 2 business days
+        prs = [{"created_at": "2026-06-01T00:00:00Z", "merged_at": "2026-06-03T00:00:00Z"}]
+        assert _avg_days_to_merge(prs) == 2.0
+
+    def test_weekend_not_counted(self):
+        # Friday midnight to Monday midnight = 1 business day (only Friday counts)
+        prs = [{"created_at": "2026-06-05T00:00:00Z", "merged_at": "2026-06-08T00:00:00Z"}]
+        assert _avg_days_to_merge(prs) == 1.0
 
     def test_rounds_to_one_decimal(self):
         prs = [
-            {"created_at": "2026-06-01T00:00:00Z", "merged_at": "2026-06-02T08:00:00Z"},  # 1.333 days
-            {"created_at": "2026-06-01T00:00:00Z", "merged_at": "2026-06-02T16:00:00Z"},  # 1.667 days
+            {"created_at": "2026-06-01T00:00:00Z", "merged_at": "2026-06-02T08:00:00Z"},
+            {"created_at": "2026-06-01T00:00:00Z", "merged_at": "2026-06-02T16:00:00Z"},
         ]
         result = _avg_days_to_merge(prs)
         assert result == round(result, 1)
