@@ -72,6 +72,13 @@ class TestFetchMergedPrs:
             prs = _fetch_merged_prs("glific", "2026-06-01", "2026-06-14", "token")
         assert len(prs) == 1
 
+    def test_excludes_dependabot(self):
+        item = self._make_item()
+        item["user"] = {"login": "dependabot[bot]"}
+        with patch("pr_merge_time.requests.get", return_value=self._search_resp([item])):
+            prs = _fetch_merged_prs("glific", "2026-06-01", "2026-06-14", "token")
+        assert prs == []
+
     def test_skips_items_without_merged_at(self):
         item = self._make_item()
         item["pull_request"]["merged_at"] = None

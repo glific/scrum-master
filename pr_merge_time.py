@@ -70,6 +70,9 @@ def _fetch_merged_prs(org, start_date_iso, end_date_iso, token):
             repo_name = item.get("repository_url", "").split("/")[-1]
             if repo_name in EXCLUDED_REPOS:
                 continue
+            author = (item.get("user") or {}).get("login", "")
+            if author == "dependabot[bot]":
+                continue
             merged_at = (item.get("pull_request") or {}).get("merged_at")
             if not merged_at:
                 continue
