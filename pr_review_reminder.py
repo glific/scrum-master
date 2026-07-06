@@ -2,9 +2,9 @@
 """
 Glific — Daily PR Review Reminder → Discord
 
-Runs every weekday at 3:30 PM IST. Fetches all open PRs across the Glific org
-that have been open for more than 1 day, and posts a Discord reminder for the
-4:00 PM review meeting.
+Runs every weekday at 9:00 AM IST. Fetches all open PRs across the Glific org
+that have been open for more than 1 day, and posts a Discord reminder to get
+them reviewed.
 
 Required env vars:
   GITHUB_TOKEN    - GitHub PAT (public repo read access is sufficient)
@@ -112,13 +112,13 @@ def _age_label(days):
     return "1 day" if days == 1 else f"{days} days"
 
 
-def _pr_lines(prs, limit):
+def _pr_lines(prs):
     lines = []
-    for pr in prs[:limit]:
+    for pr in prs:
         reviewer_str = ", ".join(pr["reviewers"]) if pr["reviewers"] else "No reviewer assigned"
         lines.append(
             f"• **[{pr['title']}]({pr['url']})** is open for more than {_age_label(pr['age_days'])}"
-            f"\n  Author: {pr['author']}  •  Reviewer: {reviewer_str}"
+            f"\n  Reviewer: {reviewer_str}"
         )
     return lines
 
@@ -129,17 +129,31 @@ def build_payload(prs):
     if not team_prs:
         return None
 
-    lines    = _pr_lines(team_prs, 20)
-    overflow = len(team_prs) - 20
-    body     = "\n".join(lines)
+    grouped = {}
+    for pr in team_prs:
+        grouped.setdefault(pr["author"], []).append(pr)
+
+    limit     = 20
+    remaining = limit
+    sections  = []
+    for author in sorted(grouped):
+        if remaining <= 0:
+            break
+        author_prs      = grouped[author][:remaining]
+        remaining      -= len(author_prs)
+        section_lines   = _pr_lines(author_prs)
+        sections.append(f"**{author}**\n" + "\n".join(section_lines))
+
+    overflow = len(team_prs) - (limit - remaining)
+    body     = "\n\n".join(sections)
     if overflow > 0:
         body += f"\n_…and {overflow} more_"
 
     description  = f"**👥 Team PRs**\n{body}"
-    description += "\n\nPlease make sure to get on a call at **4:00 PM** for PR review and make sure these get reviewed! 🙏"
+    description += "\n\nPlease get on a review call and make sure these get reviewed! 🙏"
 
     embed = {
-        "title":       "🔔  PR Review Reminder — 4:00 PM Today",
+        "title":       "🔔  PR Review Reminder",
         "description": description,
         "color":       0xE67E22,
         "footer":      {"text": f"Glific  •  {date.today().isoformat()}"},

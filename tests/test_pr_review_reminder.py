@@ -91,29 +91,29 @@ class TestPrLines:
 
     def test_formats_pr_line(self):
         prs = [self._make_pr()]
-        lines = _pr_lines(prs, limit=10)
+        lines = _pr_lines(prs)
         assert len(lines) == 1
         assert "Fix thing" in lines[0]
         assert "3 days" in lines[0]
 
     def test_no_reviewer_assigned(self):
         prs = [self._make_pr(reviewer=None)]
-        lines = _pr_lines(prs, limit=10)
+        lines = _pr_lines(prs)
         assert "No reviewer assigned" in lines[0]
 
     def test_shows_reviewer(self):
         prs = [self._make_pr(reviewer="alice")]
-        lines = _pr_lines(prs, limit=10)
+        lines = _pr_lines(prs)
         assert "alice" in lines[0]
 
-    def test_respects_limit(self):
+    def test_returns_line_per_pr(self):
         prs = [self._make_pr(title=f"PR {i}") for i in range(25)]
-        lines = _pr_lines(prs, limit=20)
-        assert len(lines) == 20
+        lines = _pr_lines(prs)
+        assert len(lines) == 25
 
     def test_one_day_label(self):
         prs = [self._make_pr(age=1)]
-        lines = _pr_lines(prs, limit=10)
+        lines = _pr_lines(prs)
         assert "1 day" in lines[0]
         assert "1 days" not in lines[0]
 
@@ -150,7 +150,15 @@ class TestBuildPayload:
         embed = payload["embeds"][0]
         assert "title" in embed
         assert "description" in embed
-        assert "4:00 PM" in embed["description"]
+        assert "review call" in embed["description"]
+
+    def test_groups_prs_by_author(self):
+        team_members = sorted(CORE_TEAM)[:2]
+        prs = [self._make_pr(team_members[0]), self._make_pr(team_members[1])]
+        payload = build_payload(prs)
+        description = payload["embeds"][0]["description"]
+        assert f"**{team_members[0]}**" in description
+        assert f"**{team_members[1]}**" in description
 
     def test_overflow_text_shown(self):
         team_member = next(iter(CORE_TEAM))
