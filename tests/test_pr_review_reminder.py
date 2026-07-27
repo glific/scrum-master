@@ -96,16 +96,6 @@ class TestPrLines:
         assert "Fix thing" in lines[0]
         assert "3 days" in lines[0]
 
-    def test_no_reviewer_assigned(self):
-        prs = [self._make_pr(reviewer=None)]
-        lines = _pr_lines(prs)
-        assert "No reviewer assigned" in lines[0]
-
-    def test_shows_reviewer(self):
-        prs = [self._make_pr(reviewer="alice")]
-        lines = _pr_lines(prs)
-        assert "alice" in lines[0]
-
     def test_returns_line_per_pr(self):
         prs = [self._make_pr(title=f"PR {i}") for i in range(25)]
         lines = _pr_lines(prs)
@@ -121,13 +111,13 @@ class TestPrLines:
 # ── build_payload ─────────────────────────────────────────────────────────────
 
 class TestBuildPayload:
-    def _make_pr(self, author, age=3):
+    def _make_pr(self, author, age=3, reviewers=None):
         return {
             "title": "Some PR",
             "url": "https://github.com/glific/glific/pull/1",
             "age_days": age,
             "author": author,
-            "reviewers": [],
+            "reviewers": reviewers or [],
             "repo": "glific",
             "number": 1,
         }
@@ -152,13 +142,41 @@ class TestBuildPayload:
         assert "description" in embed
         assert "review call" in embed["description"]
 
-    def test_groups_prs_by_author(self):
-        team_members = sorted(CORE_TEAM)[:2]
-        prs = [self._make_pr(team_members[0]), self._make_pr(team_members[1])]
+    def test_groups_prs_by_reviewer(self):
+        team_member = next(iter(CORE_TEAM))
+        prs = [
+            self._make_pr(team_member, reviewers=["alice"]),
+            self._make_pr(team_member, reviewers=["bob"]),
+        ]
         payload = build_payload(prs)
         description = payload["embeds"][0]["description"]
-        assert f"**{team_members[0]}**" in description
-        assert f"**{team_members[1]}**" in description
+        assert "**alice**" in description
+        assert "**bob**" in description
+
+    def test_pr_with_no_reviewer_goes_to_unassigned_section(self):
+        team_member = next(iter(CORE_TEAM))
+        prs = [self._make_pr(team_member, reviewers=[])]
+        payload = build_payload(prs)
+        description = payload["embeds"][0]["description"]
+        assert "**Unassigned**" in description
+
+    def test_pr_with_multiple_reviewers_appears_in_each_section(self):
+        team_member = next(iter(CORE_TEAM))
+        prs = [self._make_pr(team_member, reviewers=["alice", "bob"])]
+        payload = build_payload(prs)
+        description = payload["embeds"][0]["description"]
+        assert "**alice**" in description
+        assert "**bob**" in description
+
+    def test_unassigned_section_sorted_last(self):
+        team_member = next(iter(CORE_TEAM))
+        prs = [
+            self._make_pr(team_member, reviewers=[]),
+            self._make_pr(team_member, reviewers=["alice"]),
+        ]
+        payload = build_payload(prs)
+        description = payload["embeds"][0]["description"]
+        assert description.index("**alice**") < description.index("**Unassigned**")
 
     def test_overflow_text_shown(self):
         team_member = next(iter(CORE_TEAM))

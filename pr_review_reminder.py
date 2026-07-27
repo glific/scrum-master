@@ -115,12 +115,13 @@ def _age_label(days):
 def _pr_lines(prs):
     lines = []
     for pr in prs:
-        reviewer_str = ", ".join(pr["reviewers"]) if pr["reviewers"] else "No reviewer assigned"
         lines.append(
             f"• **[{pr['title']}]({pr['url']})** is open for more than {_age_label(pr['age_days'])}"
-            f"\n  Reviewer: {reviewer_str}"
         )
     return lines
+
+
+UNASSIGNED_LABEL = "Unassigned"
 
 
 def build_payload(prs):
@@ -131,25 +132,31 @@ def build_payload(prs):
 
     grouped = {}
     for pr in team_prs:
-        grouped.setdefault(pr["author"], []).append(pr)
+        for reviewer in pr["reviewers"] or [UNASSIGNED_LABEL]:
+            grouped.setdefault(reviewer, []).append(pr)
 
-    limit     = 20
-    remaining = limit
-    sections  = []
-    for author in sorted(grouped):
+    limit      = 20
+    remaining  = limit
+    sections   = []
+    reviewers  = sorted(r for r in grouped if r != UNASSIGNED_LABEL)
+    if UNASSIGNED_LABEL in grouped:
+        reviewers.append(UNASSIGNED_LABEL)
+
+    for reviewer in reviewers:
         if remaining <= 0:
             break
-        author_prs      = grouped[author][:remaining]
-        remaining      -= len(author_prs)
-        section_lines   = _pr_lines(author_prs)
-        sections.append(f"**{author}**\n" + "\n".join(section_lines))
+        reviewer_prs    = grouped[reviewer][:remaining]
+        remaining      -= len(reviewer_prs)
+        section_lines   = _pr_lines(reviewer_prs)
+        sections.append(f"**{reviewer}**\n" + "\n".join(section_lines))
 
-    overflow = len(team_prs) - (limit - remaining)
+    total_entries = sum(len(v) for v in grouped.values())
+    overflow = total_entries - (limit - remaining)
     body     = "\n\n".join(sections)
     if overflow > 0:
         body += f"\n_…and {overflow} more_"
 
-    description  = f"**👥 Team PRs**\n{body}"
+    description  = f"_Grouped by reviewer_\n\n{body}"
     description += "\n\nPlease get on a review call and make sure these get reviewed! 🙏"
 
     embed = {
