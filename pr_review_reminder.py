@@ -32,7 +32,14 @@ CORE_TEAM       = {"priyanshu6238", "shijithkjayan", "akanshaaa19", "AmishaBisht
 
 
 def _fetch_reviewers(org, repo, number, headers):
-    """Return all reviewer logins — both pending requests and submitted reviews."""
+    """Return logins formally assigned to review — pending requests plus anyone
+    who was ever requested (per the issue timeline), honoring explicit removals.
+
+    Submitted reviews are NOT used as a signal on their own: GitHub lets anyone
+    leave a review (even just a comment) without being asked to, so treating
+    every reviewer/commenter as "the reviewer" misattributes drive-by comments
+    to people who were never assigned.
+    """
     reviewers = set()
 
     resp = requests.get(
@@ -44,14 +51,20 @@ def _fetch_reviewers(org, repo, number, headers):
             reviewers.add(u["login"])
 
     resp = requests.get(
-        f"https://api.github.com/repos/{org}/{repo}/pulls/{number}/reviews",
-        headers=headers, timeout=10,
+        f"https://api.github.com/repos/{org}/{repo}/issues/{number}/timeline",
+        params={"per_page": 100}, headers=headers, timeout=10,
     )
     if resp.status_code == 200:
-        for r in resp.json():
-            login = (r.get("user") or {}).get("login", "")
-            if login and login != "coderabbitai[bot]":
-                reviewers.add(login)
+        assigned = {}
+        for event in resp.json():
+            login = (event.get("requested_reviewer") or {}).get("login", "")
+            if not login or login == "coderabbitai[bot]":
+                continue
+            if event.get("event") == "review_requested":
+                assigned[login] = True
+            elif event.get("event") == "review_request_removed":
+                assigned[login] = False
+        reviewers.update(login for login, still_assigned in assigned.items() if still_assigned)
 
     return list(reviewers)
 
