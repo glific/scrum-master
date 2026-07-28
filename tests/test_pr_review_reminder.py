@@ -38,39 +38,70 @@ class TestFetchReviewers:
         r.json.return_value = json_data
         return r
 
-    def test_combines_requested_and_submitted(self):
+    def test_combines_pending_and_ever_requested(self):
         requested_resp = self._make_resp(200, {"users": [{"login": "alice"}]})
-        reviews_resp = self._make_resp(200, [
-            {"user": {"login": "bob"}, "state": "APPROVED"},
+        timeline_resp = self._make_resp(200, [
+            {"event": "review_requested", "requested_reviewer": {"login": "bob"}},
         ])
-        with patch("pr_review_reminder.requests.get", side_effect=[requested_resp, reviews_resp]):
+        with patch("pr_review_reminder.requests.get", side_effect=[requested_resp, timeline_resp]):
             result = _fetch_reviewers("glific", "glific", 1, {})
         assert set(result) == {"alice", "bob"}
 
     def test_deduplicates_reviewers(self):
         requested_resp = self._make_resp(200, {"users": [{"login": "alice"}]})
-        reviews_resp = self._make_resp(200, [
-            {"user": {"login": "alice"}, "state": "APPROVED"},
+        timeline_resp = self._make_resp(200, [
+            {"event": "review_requested", "requested_reviewer": {"login": "alice"}},
         ])
-        with patch("pr_review_reminder.requests.get", side_effect=[requested_resp, reviews_resp]):
+        with patch("pr_review_reminder.requests.get", side_effect=[requested_resp, timeline_resp]):
             result = _fetch_reviewers("glific", "glific", 1, {})
         assert result.count("alice") == 1
 
     def test_filters_coderabbit_bot(self):
         requested_resp = self._make_resp(200, {"users": []})
-        reviews_resp = self._make_resp(200, [
-            {"user": {"login": "coderabbitai[bot]"}, "state": "APPROVED"},
-            {"user": {"login": "bob"}, "state": "CHANGES_REQUESTED"},
+        timeline_resp = self._make_resp(200, [
+            {"event": "review_requested", "requested_reviewer": {"login": "coderabbitai[bot]"}},
+            {"event": "review_requested", "requested_reviewer": {"login": "bob"}},
         ])
-        with patch("pr_review_reminder.requests.get", side_effect=[requested_resp, reviews_resp]):
+        with patch("pr_review_reminder.requests.get", side_effect=[requested_resp, timeline_resp]):
             result = _fetch_reviewers("glific", "glific", 1, {})
         assert "coderabbitai[bot]" not in result
         assert "bob" in result
 
+    def test_excludes_users_who_only_commented_without_being_requested(self):
+        requested_resp = self._make_resp(200, {"users": []})
+        timeline_resp = self._make_resp(200, [
+            {"event": "review_requested", "requested_reviewer": {"login": "alice"}},
+        ])
+        with patch("pr_review_reminder.requests.get", side_effect=[requested_resp, timeline_resp]):
+            result = _fetch_reviewers("glific", "glific", 1, {})
+        assert set(result) == {"alice"}
+        assert "bob" not in result
+
+    def test_honors_review_request_removed(self):
+        requested_resp = self._make_resp(200, {"users": []})
+        timeline_resp = self._make_resp(200, [
+            {"event": "review_requested", "requested_reviewer": {"login": "alice"}},
+            {"event": "review_request_removed", "requested_reviewer": {"login": "alice"}},
+        ])
+        with patch("pr_review_reminder.requests.get", side_effect=[requested_resp, timeline_resp]):
+            result = _fetch_reviewers("glific", "glific", 1, {})
+        assert result == []
+
+    def test_re_request_after_removal_keeps_reviewer(self):
+        requested_resp = self._make_resp(200, {"users": []})
+        timeline_resp = self._make_resp(200, [
+            {"event": "review_requested", "requested_reviewer": {"login": "alice"}},
+            {"event": "review_request_removed", "requested_reviewer": {"login": "alice"}},
+            {"event": "review_requested", "requested_reviewer": {"login": "alice"}},
+        ])
+        with patch("pr_review_reminder.requests.get", side_effect=[requested_resp, timeline_resp]):
+            result = _fetch_reviewers("glific", "glific", 1, {})
+        assert result == ["alice"]
+
     def test_handles_api_errors_gracefully(self):
         requested_resp = self._make_resp(403, {})
-        reviews_resp = self._make_resp(403, {})
-        with patch("pr_review_reminder.requests.get", side_effect=[requested_resp, reviews_resp]):
+        timeline_resp = self._make_resp(403, {})
+        with patch("pr_review_reminder.requests.get", side_effect=[requested_resp, timeline_resp]):
             result = _fetch_reviewers("glific", "glific", 1, {})
         assert result == []
 
