@@ -2,8 +2,8 @@ name: Weekly Release Tracker
 
 on:
   schedule:
-    # Every Saturday at 11:00 PM IST (17:30 UTC)
-    - cron: "30 17 * * 6"
+    # Every Saturday at 10:49 PM IST (17:19 UTC) — odd minute to dodge scheduler rush
+    - cron: "19 17 * * 6"
   workflow_dispatch:
     inputs:
       saturday_date:

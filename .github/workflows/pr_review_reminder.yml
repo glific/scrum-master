@@ -2,8 +2,8 @@ name: PR Review Reminder
 
 on:
   schedule:
-    # Weekdays (Mon–Fri) at 9:00 AM IST (03:30 UTC)
-    - cron: "30 3 * * 1-5"
+    # Weekdays (Mon–Fri) at 9:07 AM IST (03:37 UTC) — odd minute to dodge scheduler rush
+    - cron: "37 3 * * 1-5"
   workflow_dispatch:
     inputs:
       discord_webhook:

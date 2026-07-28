@@ -2,8 +2,8 @@ name: Glific Iteration Update
 
 on:
   schedule:
-    # Every Monday at 9:00 AM IST (03:30 UTC)
-    - cron: "30 3 * * 1"
+    # Every Monday at 8:53 AM IST (03:23 UTC) — odd minute to dodge scheduler rush
+    - cron: "23 3 * * 1"
   workflow_dispatch:
     inputs:
       dry_run:

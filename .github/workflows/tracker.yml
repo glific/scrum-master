@@ -2,8 +2,8 @@ name: Iteration Completion Tracker
 
 on:
   schedule:
-    # Every Monday at 10:00 AM IST (04:30 UTC) — week-parity check runs inside the job
-    - cron: "30 4 * * 1"
+    # Every Monday at 7:17 AM IST (01:47 UTC) — odd minute to dodge scheduler rush; week-parity check runs inside the job
+    - cron: "47 1 * * 1"
   workflow_dispatch:
     inputs:
       discord_webhook:
