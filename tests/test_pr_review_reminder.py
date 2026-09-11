@@ -7,10 +7,12 @@ import pytest
 
 from pr_review_reminder import (
     CORE_TEAM,
+    DESCRIPTION_LIMIT,
     INCLUDED_REPOS,
     _age_label,
+    _fetch_open_prs,
     _fetch_reviewers,
-    _fetch_stale_prs,
+    _is_approved,
     _pr_lines,
     build_payload,
 )
@@ -106,6 +108,65 @@ class TestFetchReviewers:
         assert result == []
 
 
+# ── _is_approved ──────────────────────────────────────────────────────────────
+
+class TestIsApproved:
+    def _make_resp(self, status, json_data):
+        r = MagicMock()
+        r.status_code = status
+        r.json.return_value = json_data
+        return r
+
+    def _call(self, status, reviews):
+        with patch("pr_review_reminder.requests.get", return_value=self._make_resp(status, reviews)):
+            return _is_approved("glific", "glific", 1, {})
+
+    def test_no_reviews_is_not_approved(self):
+        assert self._call(200, []) is False
+
+    def test_approval_counts(self):
+        assert self._call(200, [
+            {"state": "APPROVED", "user": {"login": "alice"}},
+        ]) is True
+
+    def test_comment_only_is_not_approved(self):
+        assert self._call(200, [
+            {"state": "COMMENTED", "user": {"login": "alice"}},
+        ]) is False
+
+    def test_changes_requested_is_not_approved(self):
+        assert self._call(200, [
+            {"state": "CHANGES_REQUESTED", "user": {"login": "alice"}},
+        ]) is False
+
+    def test_later_changes_requested_supersedes_approval(self):
+        assert self._call(200, [
+            {"state": "APPROVED", "user": {"login": "alice"}},
+            {"state": "CHANGES_REQUESTED", "user": {"login": "alice"}},
+        ]) is False
+
+    def test_comment_after_approval_keeps_approval(self):
+        assert self._call(200, [
+            {"state": "APPROVED", "user": {"login": "alice"}},
+            {"state": "COMMENTED", "user": {"login": "alice"}},
+        ]) is True
+
+    def test_dismissed_approval_is_not_approved(self):
+        assert self._call(200, [
+            {"state": "APPROVED", "user": {"login": "alice"}},
+            {"state": "DISMISSED", "user": {"login": "alice"}},
+        ]) is False
+
+    def test_one_approval_among_several_reviewers_counts(self):
+        assert self._call(200, [
+            {"state": "CHANGES_REQUESTED", "user": {"login": "alice"}},
+            {"state": "APPROVED", "user": {"login": "bob"}},
+        ]) is True
+
+    def test_handles_api_errors_gracefully(self):
+        assert self._call(403, {}) is False
+
+
 # ── _pr_lines ─────────────────────────────────────────────────────────────────
 
 class TestPrLines:
@@ -135,8 +196,14 @@ class TestPrLines:
     def test_one_day_label(self):
         prs = [self._make_pr(age=1)]
         lines = _pr_lines(prs)
-        assert "1 day" in lines[0]
+        assert "open for 1 day" in lines[0]
         assert "1 days" not in lines[0]
+
+    def test_pr_opened_today(self):
+        prs = [self._make_pr(age=0)]
+        lines = _pr_lines(prs)
+        assert "opened today" in lines[0]
+        assert "0 days" not in lines[0]
 
 
 # ── build_payload ─────────────────────────────────────────────────────────────
@@ -209,11 +276,21 @@ class TestBuildPayload:
         description = payload["embeds"][0]["description"]
         assert description.index("**alice**") < description.index("**Unassigned**")
 
-    def test_overflow_text_shown(self):
+    def test_lists_every_pr_when_it_fits(self):
         team_member = next(iter(CORE_TEAM))
         prs = [self._make_pr(team_member) for _ in range(25)]
-        payload = build_payload(prs)
-        assert "…and 5 more" in payload["embeds"][0]["description"]
+        description = build_payload(prs)["embeds"][0]["description"]
+        assert description.count("• **[Some PR]") == 25
+        assert "…and" not in description
+
+    def test_trims_and_reports_overflow_past_discord_limit(self):
+        team_member = next(iter(CORE_TEAM))
+        prs = [self._make_pr(team_member) for _ in range(300)]
+        description = build_payload(prs)["embeds"][0]["description"]
+        assert len(description) <= DESCRIPTION_LIMIT
+        shown = description.count("• **[Some PR]")
+        assert 0 < shown < 300
+        assert f"…and {300 - shown} more" in description
 
     def test_no_overflow_when_under_limit(self):
         team_member = next(iter(CORE_TEAM))
@@ -233,9 +310,9 @@ class TestBuildPayload:
         assert "…and" not in payload["embeds"][0]["description"]
 
 
-# ── _fetch_stale_prs ──────────────────────────────────────────────────────────
+# ── _fetch_open_prs ──────────────────────────────────────────────────────────
 
-class TestFetchStalePrs:
+class TestFetchOpenPrs:
     def _make_item(self, repo="glific", number=1, created_days_ago=5):
         created = (datetime.now(tz=timezone.utc) - timedelta(days=created_days_ago)).isoformat()
         return {
@@ -254,38 +331,91 @@ class TestFetchStalePrs:
         resp.raise_for_status = MagicMock()
         return resp
 
+    def _mock_reviews(self, reviews):
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = reviews
+        return resp
+
+    def _mock_reviewers(self):
+        """The two responses _fetch_reviewers consumes: requested_reviewers, then timeline."""
+        requested = MagicMock(status_code=200)
+        requested.json.return_value = {"users": []}
+        timeline = MagicMock(status_code=200)
+        timeline.json.return_value = []
+        return [requested, timeline]
+
+    def test_search_query_has_no_age_cutoff(self):
+        with patch("pr_review_reminder.requests.get", return_value=self._mock_search([])) as get:
+            _fetch_open_prs("glific", "token")
+        query = get.call_args.kwargs["params"]["q"]
+        assert query == "is:pr is:open draft:false org:glific"
+        assert "created:" not in query
+
+    def test_includes_pr_opened_today(self):
+        items = [self._make_item(created_days_ago=0)]
+
+        with patch("pr_review_reminder.requests.get", side_effect=[
+            self._mock_search(items),
+            self._mock_reviews([]),
+            *self._mock_reviewers(),
+        ]):
+            prs = _fetch_open_prs("glific", "token")
+
+        assert len(prs) == 1
+        assert prs[0]["age_days"] == 0
+
     def test_filters_out_excluded_repos(self):
         items = [
             self._make_item(repo="glific"),
             self._make_item(repo="some-other-repo", number=2),
         ]
-        reviewer_resp = MagicMock(status_code=200)
-        reviewer_resp.json.return_value = {"users": []}
-
-        review_resp = MagicMock(status_code=200)
-        review_resp.json.return_value = []
 
         with patch("pr_review_reminder.requests.get", side_effect=[
             self._mock_search(items),
-            reviewer_resp, review_resp,  # reviewers for PR 1
+            self._mock_reviews([]),      # PR 1 not approved
+            *self._mock_reviewers(),     # reviewers for PR 1
         ]):
-            prs = _fetch_stale_prs("glific", "token")
+            prs = _fetch_open_prs("glific", "token")
 
         assert len(prs) == 1
         assert prs[0]["repo"] == "glific"
 
     def test_includes_glific_frontend(self):
         items = [self._make_item(repo="glific-frontend", number=5)]
-        reviewer_resp = MagicMock(status_code=200)
-        reviewer_resp.json.return_value = {"users": []}
-        review_resp = MagicMock(status_code=200)
-        review_resp.json.return_value = []
 
         with patch("pr_review_reminder.requests.get", side_effect=[
             self._mock_search(items),
-            reviewer_resp, review_resp,
+            self._mock_reviews([]),
+            *self._mock_reviewers(),
         ]):
-            prs = _fetch_stale_prs("glific", "token")
+            prs = _fetch_open_prs("glific", "token")
 
         assert len(prs) == 1
         assert prs[0]["repo"] == "glific-frontend"
+
+    def test_skips_approved_prs(self):
+        items = [self._make_item(repo="glific", number=1)]
+
+        with patch("pr_review_reminder.requests.get", side_effect=[
+            self._mock_search(items),
+            self._mock_reviews([{"state": "APPROVED", "user": {"login": "alice"}}]),
+        ]):
+            prs = _fetch_open_prs("glific", "token")
+
+        assert prs == []
+
+    def test_keeps_unapproved_pr_alongside_approved_one(self):
+        items = [
+            self._make_item(repo="glific", number=1),
+            self._make_item(repo="glific", number=2),
+        ]
+
+        with patch("pr_review_reminder.requests.get", side_effect=[
+            self._mock_search(items),
+            self._mock_reviews([{"state": "APPROVED", "user": {"login": "alice"}}]),
+            self._mock_reviews([{"state": "COMMENTED", "user": {"login": "alice"}}]),
+            *self._mock_reviewers(),
+        ]):
+            prs = _fetch_open_prs("glific", "token")
+
+        assert [pr["number"] for pr in prs] == [2]
