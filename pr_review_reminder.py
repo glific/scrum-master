@@ -2,9 +2,10 @@
 """
 Glific — Daily PR Review Reminder → Discord
 
-Runs every weekday at 9:00 AM IST. Fetches all open PRs across the Glific org
-that have been open for more than 1 day, and posts a Discord reminder to get
-them reviewed.
+Runs every weekday at 9:00 AM IST. Fetches every open PR across the Glific org
+that is still awaiting a review, and posts a Discord reminder to get them
+reviewed. PRs that already have an approval are left out — they need a merge,
+not a reviewer.
 
 Required env vars:
   GITHUB_TOKEN    - GitHub PAT (public repo read access is sufficient)
@@ -16,7 +17,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 import requests
 from dotenv import load_dotenv
@@ -69,10 +70,35 @@ def _fetch_reviewers(org, repo, number, headers):
     return list(reviewers)
 
 
-def _fetch_stale_prs(org, token):
-    """Return open PRs that have been open for more than 1 day, oldest first."""
-    cutoff  = (date.today() - timedelta(days=1)).isoformat()
-    query   = f"is:pr is:open draft:false org:{org} created:<{cutoff}"
+def _is_approved(org, repo, number, headers):
+    """True when the PR already carries a standing approval.
+
+    Only decisive reviews count: a plain comment leaves the verdict unchanged,
+    while a later CHANGES_REQUESTED or a dismissal supersedes an earlier
+    approval from the same person.
+    """
+    resp = requests.get(
+        f"https://api.github.com/repos/{org}/{repo}/pulls/{number}/reviews",
+        params={"per_page": 100}, headers=headers, timeout=10,
+    )
+    if resp.status_code != 200:
+        return False
+
+    verdicts = {}
+    for review in resp.json():
+        state = (review.get("state") or "").upper()
+        if state not in {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}:
+            continue
+        login = (review.get("user") or {}).get("login", "")
+        if login:
+            verdicts[login] = state
+
+    return "APPROVED" in verdicts.values()
+
+
+def _fetch_open_prs(org, token):
+    """Return every open, unapproved PR still awaiting review, oldest first."""
+    query   = f"is:pr is:open draft:false org:{org}"
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
@@ -96,6 +122,8 @@ def _fetch_stale_prs(org, token):
         for item in items:
             repo_name = item.get("repository_url", "").split("/")[-1]
             if repo_name not in INCLUDED_REPOS:
+                continue
+            if _is_approved(org, repo_name, item["number"], headers):
                 continue
             created_at = datetime.fromisoformat(item["created_at"].rstrip("Z")).replace(tzinfo=timezone.utc)
             age_days   = (now - created_at).days
@@ -128,13 +156,17 @@ def _age_label(days):
 def _pr_lines(prs):
     lines = []
     for pr in prs:
-        lines.append(
-            f"• **[{pr['title']}]({pr['url']})** is open for more than {_age_label(pr['age_days'])}"
-        )
+        age = pr["age_days"]
+        age_text = "opened today" if age == 0 else f"open for {_age_label(age)}"
+        lines.append(f"• **[{pr['title']}]({pr['url']})** — {age_text}")
     return lines
 
 
-UNASSIGNED_LABEL = "Unassigned"
+UNASSIGNED_LABEL  = "Unassigned"
+HEADING           = "_Grouped by reviewer_\n\n"
+SIGN_OFF          = "\n\nPlease get on a review call and make sure these get reviewed! 🙏"
+DESCRIPTION_LIMIT = 4096   # Discord's hard cap on an embed description
+OVERFLOW_RESERVE  = 40     # room for the "…and N more" note if we have to trim
 
 
 def build_payload(prs):
@@ -148,29 +180,40 @@ def build_payload(prs):
         for reviewer in pr["reviewers"] or [UNASSIGNED_LABEL]:
             grouped.setdefault(reviewer, []).append(pr)
 
-    limit      = 20
-    remaining  = limit
-    sections   = []
-    reviewers  = sorted(r for r in grouped if r != UNASSIGNED_LABEL)
+    reviewers = sorted(r for r in grouped if r != UNASSIGNED_LABEL)
     if UNASSIGNED_LABEL in grouped:
         reviewers.append(UNASSIGNED_LABEL)
 
-    for reviewer in reviewers:
-        if remaining <= 0:
-            break
-        reviewer_prs    = grouped[reviewer][:remaining]
-        remaining      -= len(reviewer_prs)
-        section_lines   = _pr_lines(reviewer_prs)
-        sections.append(f"**{reviewer}**\n" + "\n".join(section_lines))
+    # Every PR awaiting review gets listed; we only trim when the message would
+    # otherwise exceed what Discord will accept.
+    budget    = DESCRIPTION_LIMIT - len(HEADING) - len(SIGN_OFF) - OVERFLOW_RESERVE
+    used      = 0
+    shown     = 0
+    sections  = []
+    truncated = False
 
-    total_entries = sum(len(v) for v in grouped.values())
-    overflow = total_entries - (limit - remaining)
+    for reviewer in reviewers:
+        heading = f"**{reviewer}**"
+        kept    = []
+        for line in _pr_lines(grouped[reviewer]):
+            cost = len(line) + 1 + (len(heading) + 2 if not kept else 0)
+            if used + cost > budget:
+                truncated = True
+                break
+            used  += cost
+            shown += 1
+            kept.append(line)
+        if kept:
+            sections.append(heading + "\n" + "\n".join(kept))
+        if truncated:
+            break
+
+    overflow = sum(len(v) for v in grouped.values()) - shown
     body     = "\n\n".join(sections)
     if overflow > 0:
         body += f"\n_…and {overflow} more_"
 
-    description  = f"_Grouped by reviewer_\n\n{body}"
-    description += "\n\nPlease get on a review call and make sure these get reviewed! 🙏"
+    description = f"{HEADING}{body}{SIGN_OFF}"
 
     embed = {
         "title":       "🔔  PR Review Reminder",
@@ -203,9 +246,9 @@ def main():
             print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Fetching open PRs in {org} that have been open for more than 1 day…")
+    print(f"Fetching open PRs in {org} that are awaiting review…")
     try:
-        prs = _fetch_stale_prs(org, token)
+        prs = _fetch_open_prs(org, token)
     except requests.HTTPError as e:
         print(f"GitHub API error: {e}", file=sys.stderr)
         sys.exit(1)
@@ -214,7 +257,7 @@ def main():
 
     payload = build_payload(prs)
     if payload is None:
-        print("No stale team PRs — skipping Discord post.")
+        print("No team PRs awaiting review — skipping Discord post.")
         return
 
     if args.dry_run:
