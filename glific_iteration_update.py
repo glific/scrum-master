@@ -3,7 +3,7 @@
 Glific — Iteration Completion Rate + Deliverables Summary → Discord
 ────────────────────────────────────────────────────────────────────
 Fetches the current iteration from GitHub Projects v2, filters out
-support-process repo items and epics, calculates the completion rate, and posts
+epics and support items, calculates the completion rate, and posts
 a rich summary to Discord.
 
 Scheduled run : every Monday 9 AM IST via GitHub Actions cron
@@ -29,6 +29,10 @@ GITHUB_API_URL   = "https://api.github.com/graphql"
 
 STATUS_ORDER     = ["Done", "In Review", "In Progress", "To Do"]
 STATUS_CLOSED    = {"done", "closed"}
+EPIC_ISSUE_TYPE  = "Epic"
+SUPPORT_LABEL    = "support"
+# Closed support issues were left behind in this repo when open ones moved to glific/glific
+SUPPORT_REPO     = "glific/support-process"
 STATUS_ICONS     = {
     "Done":        "🟢",
     "In Review":   "🔍",
@@ -88,6 +92,7 @@ query ProjectItems($org: String!, $number: Int!, $after: String) {
               number
               title
               url
+              issueType { name }
               labels(first: 10) { nodes { name } }
               repository { nameWithOwner }
               assignees(first: 5) { nodes { login name } }
@@ -209,10 +214,11 @@ def _paginate_items(org, number, token):
 
 
 def _should_skip(content):
-    """Return True if the item belongs to the support-process repo or is an Epic."""
+    """Return True if the item is an Epic, labelled support, or in the support-process repo."""
     repo = (content.get("repository") or {}).get("nameWithOwner", "")
-    title = content.get("title", "")
-    return repo == "glific/support-process" or title.startswith("[Epic]")
+    issue_type = (content.get("issueType") or {}).get("name")
+    labels = {l["name"].lower() for l in (content.get("labels") or {}).get("nodes", [])}
+    return issue_type == EPIC_ISSUE_TYPE or SUPPORT_LABEL in labels or repo == SUPPORT_REPO
 
 
 def _display_status(raw):
@@ -455,7 +461,7 @@ def build_messages(data):
     iter_label    = f"{data['iteration_title']} ({date_range})"
     days_note     = f"Day {data['days_elapsed']} of {data['total_days']}"
     support_note  = (
-        f"\n> _{data['support_skipped']} item(s) excluded from calculations (support-process / epics)_"
+        f"\n> _{data['support_skipped']} item(s) excluded from calculations (epics / support)_"
         if data["support_skipped"] else ""
     )
 
@@ -535,7 +541,7 @@ def main():
     closed = sum(1 for i in data["items"] if i["status"] == "Done")
     pct    = round(closed / total * 100) if total else 0
     print(f"Iteration : {data['iteration_title']}  ({data['starts_at']} → {data['ends_at']})")
-    print(f"Items     : {total} total  |  {closed} done  |  {data['support_skipped']} skipped (support-process/epics)")
+    print(f"Items     : {total} total  |  {closed} done  |  {data['support_skipped']} skipped (epics/support)")
     print(f"Completion: {pct}%")
 
     payloads = build_messages(data)

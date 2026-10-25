@@ -155,13 +155,29 @@ class TestDisplayStatus:
 # ── _should_skip ──────────────────────────────────────────────────────────────
 
 class TestShouldSkip:
+    def test_epic_issue_type(self):
+        content = {"repository": {"nameWithOwner": "glific/glific"}, "title": "Big Feature", "issueType": {"name": "Epic"}}
+        assert _should_skip(content) is True
+
+    def test_support_label(self):
+        content = {"repository": {"nameWithOwner": "glific/glific"}, "title": "Org setup", "labels": {"nodes": [{"name": "support"}]}}
+        assert _should_skip(content) is True
+
+    def test_support_label_case_insensitive(self):
+        content = {"title": "Org setup", "labels": {"nodes": [{"name": "Support"}]}}
+        assert _should_skip(content) is True
+
     def test_support_process_repo(self):
         content = {"repository": {"nameWithOwner": "glific/support-process"}, "title": "Normal"}
         assert _should_skip(content) is True
 
-    def test_epic_title(self):
+    def test_epic_title_prefix_without_type_not_skipped(self):
         content = {"repository": {"nameWithOwner": "glific/glific"}, "title": "[Epic] Big Feature"}
-        assert _should_skip(content) is True
+        assert _should_skip(content) is False
+
+    def test_task_issue_type(self):
+        content = {"repository": {"nameWithOwner": "glific/glific"}, "title": "Fix bug", "issueType": {"name": "Task"}, "labels": {"nodes": [{"name": "bug"}]}}
+        assert _should_skip(content) is False
 
     def test_normal_item(self):
         content = {"repository": {"nameWithOwner": "glific/glific"}, "title": "Fix bug #123"}
@@ -348,6 +364,18 @@ class TestFetchCurrentIteration:
             result = fetch_current_iteration("glific", 8, "token")
         assert len(result["items"]) == 1
         assert result["support_skipped"] == 1
+
+    def test_skips_epics_and_support_label(self):
+        meta = self._make_meta("iter-1")
+        items = [
+            make_issue_item(number=1, issue_type="Epic", iteration_id="iter-1"),
+            make_issue_item(number=2, labels=["support"], iteration_id="iter-1"),
+            make_issue_item(number=3, issue_type="Task", iteration_id="iter-1"),
+        ]
+        with patch("glific_iteration_update._gql", side_effect=[meta, paginate_response(items)]):
+            result = fetch_current_iteration("glific", 8, "token")
+        assert [i["identifier"] for i in result["items"]] == ["glific#3"]
+        assert result["support_skipped"] == 2
 
     def test_pr_has_pr_true(self):
         meta = self._make_meta("iter-1")
