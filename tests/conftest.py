@@ -33,6 +33,7 @@ def make_issue_item(
     labels=None,
     assignees=None,
     has_pr_events=0,
+    issue_type=None,
 ):
     return {
         "id": f"item-{number}",
@@ -41,6 +42,7 @@ def make_issue_item(
             "number": number,
             "title": title,
             "url": f"https://github.com/{repo}/issues/{number}",
+            "issueType": {"name": issue_type} if issue_type else None,
             "labels": {"nodes": [{"name": l} for l in (labels or [])]},
             "repository": {"nameWithOwner": repo},
             "assignees": {"nodes": [{"login": a, "name": None} for a in (assignees or [])]},

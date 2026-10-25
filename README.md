@@ -15,9 +15,9 @@ A Discord embed containing:
 - Status breakdown — Done / In Review / In Progress / To Do
 - Completed deliverables with links to each issue/PR
 - Items currently in progress or in review
-- Count of support tickets excluded from calculations
+- Count of epics and support tickets excluded from calculations
 
-> Tickets labelled **`support`** are automatically filtered out from all calculations and the deliverables list.
+> Items with issue type **Epic**, items labelled **`support`**, and items from the `glific/support-process` repo are filtered out from all calculations and the deliverables list.
 
 **Example output**
 
@@ -118,7 +118,7 @@ All config lives in environment variables (or `.env` for local runs):
 | `PROJECT_NUMBER` | GitHub project number (`8`) |
 | `DISCORD_WEBHOOK` | Discord channel webhook URL |
 
-To change the support label filter, edit `SUPPORT_LABEL` at the top of `glific_iteration_update.py`.
+To change what is filtered out, edit `EPIC_ISSUE_TYPE`, `SUPPORT_LABEL` or `SUPPORT_REPO` at the top of `glific_iteration_update.py`.
 
 ---
 
